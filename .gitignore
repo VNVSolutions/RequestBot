@@ -1,0 +1,5 @@
+.idea
+/web/mysql
+__pycache__
+/static/admin
+/images
