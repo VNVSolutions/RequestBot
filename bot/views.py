@@ -41,6 +41,31 @@ def telegram_webhook(request):
             logger.error(f"Помилка обробки вебхуку: {str(e)}")
 
 
+@bot.message_handler(commands=['start'])
+def start(message):
+    chat_id = message.chat.id
+    first_name = message.from_user.first_name
+
+    args = message.text.split()[1:]
+
+    if args:
+        action, channel_id = args[0].split('_')
+        if action == 'channel':
+            channel, created = Channel.objects.get_or_create(channel_id=channel_id, defaults={'name': f'Channel {channel_id}'})
+
+            try:
+                user, created = User.objects.update_or_create(user_id=chat_id, defaults={'username': first_name})
+                user.channels.add(channel)
+
+                bot.approve_chat_join_request(channel_id, message.from_user.id)
+                logger.info(f"Запит на приєднання від {first_name} до каналу {channel_id} успішно прийнятий")
+            except Exception as e:
+                logger.error(f"Error approving join request or adding user to the database: {str(e)}")
+        else:
+            bot.send_message(chat_id, "Предоставлена недействительная ссылка.")
+    else:
+        bot.send_message(chat_id, "Hello Telegram! Use the provided link to subscribe to specific channels.")
+
 @bot.chat_join_request_handler(func=lambda request: True)
 def handle_join_request(request):
     chat_id = request.user_chat_id
@@ -72,13 +97,13 @@ def handle_confirmation(call):
         user.channels.add(channel)
 
         bot.send_message(chat_id, f"Спасибо, ваш запрос принят!")
-        bot.approve_chat_join_request(channel_id, call.from_user.id)
-        logger.info(f"Запит на приєднання від {first_name} до каналу {channel_id} успішно прийнятий")
 
         message = Message.objects.first()
         if message:
             bot.send_message(chat_id, message.text)
 
+        bot.approve_chat_join_request(channel_id, call.from_user.id)
+        logger.info(f"Запит на приєднання від {first_name} до каналу {channel_id} успішно прийнятий")
     except Exception as e:
         logger.error(f"Error approving join request or adding user to the database: {str(e)}")
 
