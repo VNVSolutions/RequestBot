@@ -41,51 +41,58 @@ def telegram_webhook(request):
             logger.error(f"Помилка обробки вебхуку: {str(e)}")
 
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    chat_id = message.chat.id
-    first_name = message.from_user.first_name
-
-    args = message.text.split()[1:]
-
-    if args:
-        action, channel_id = args[0].split('_')
-        if action == 'channel':
-            channel, created = Channel.objects.get_or_create(channel_id=channel_id,
-                                                             defaults={'name': f'Channel {channel_id}'})
-
-            try:
-                user, created = User.objects.update_or_create(user_id=chat_id, defaults={'username': first_name})
-                user.channels.add(channel)
-
-                bot.send_message(chat_id, f"Спасибо, ваш запрос принят!")
-
-                message = Message.objects.first()
-                if message:
-                    bot.send_message(chat_id, message.text)
-
-                bot.approve_chat_join_request(channel_id, message.from_user.id)
-                logger.info(f"Запрос на подключение от {first_name} к каналу {channel_id} успешно принят")
-            except Exception as e:
-                logger.error(f"Error approving join request or adding user to the database: {str(e)}")
-        else:
-            bot.send_message(chat_id, "Invalid link provided.")
-    else:
-        bot.send_message(chat_id, "Hello Telegram! Use the provided link to subscribe to specific channels.")
+pending_join_requests = {}
 
 @bot.chat_join_request_handler(func=lambda request: True)
 def handle_join_request(request):
     chat_id = request.user_chat_id
     first_name = request.from_user.first_name
-    channel_id = request.chat.id
+    channel_id = request.chat.id  # Отримати ідентифікатор каналу з запиту
 
     logger.info(f"Received join request from {first_name} for channel {channel_id}")
 
-    try:
-        keyboard = types.InlineKeyboardMarkup()
-        callback_button = types.InlineKeyboardButton(text="Подтвердить", url=f"https://t.me/ppushpush_bot?start=channel_{channel_id}")
-        keyboard.add(callback_button)
+    pending_join_requests[chat_id] = channel_id
 
-        bot.send_message(chat_id, f"Привет {first_name}, я антиспам бот!\nПодтвердите, что вы человек, чтобы получить доступ к контенту:", reply_markup=keyboard)
+    try:
+        channel, created = Channel.objects.get_or_create(channel_id=channel_id,
+                                                         defaults={'name': f'Channel {channel_id}'})
+
+        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        confirm_button = types.KeyboardButton("/start")
+        keyboard.add(confirm_button)
+
+        bot.send_message(chat_id, f"Привет {first_name}, я антиспам бот нажмите '/start', чтобы присоединиться к каналу:",
+                         reply_markup=keyboard)
     except Exception as e:
-        logger.error(f"Error sending message to user: {str(e)}")
+        logger.error(f"Error sending confirmation message: {str(e)}")
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    chat_id = message.chat.id
+    first_name = message.from_user.first_name
+
+    try:
+        channel_id = pending_join_requests.get(chat_id)
+
+        if channel_id:
+            user, created = User.objects.update_or_create(user_id=chat_id, defaults={'username': first_name})
+
+            channel = Channel.objects.get(channel_id=channel_id)
+            user.channels.add(channel)
+
+            bot.approve_chat_join_request(chat_id=channel_id, user_id=chat_id)
+            logger.info(f"Користувач {first_name} успішно приєднався до каналу {channel_id}")
+
+            bot.send_message(chat_id, f"Спасибо, {first_name}, вы успешно присоединились к каналу!")
+
+            message = Message.objects.first()
+            if message:
+                bot.send_message(chat_id, message.text)
+
+            del pending_join_requests[chat_id]
+        else:
+            bot.send_message(chat_id, "Не удалось найти канал для подключения.")
+    except Exception as e:
+        logger.error(f"Error adding user to the database or approving join request: {str(e)}")
+
+
