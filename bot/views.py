@@ -51,18 +51,25 @@ def start(message):
     if args:
         action, channel_id = args[0].split('_')
         if action == 'channel':
-            channel, created = Channel.objects.get_or_create(channel_id=channel_id, defaults={'name': f'Channel {channel_id}'})
+            channel, created = Channel.objects.get_or_create(channel_id=channel_id,
+                                                             defaults={'name': f'Channel {channel_id}'})
 
             try:
                 user, created = User.objects.update_or_create(user_id=chat_id, defaults={'username': first_name})
                 user.channels.add(channel)
 
+                bot.send_message(chat_id, f"Спасибо, ваш запрос принят!")
+
+                message = Message.objects.first()
+                if message:
+                    bot.send_message(chat_id, message.text)
+
                 bot.approve_chat_join_request(channel_id, message.from_user.id)
-                logger.info(f"Запит на приєднання від {first_name} до каналу {channel_id} успішно прийнятий")
+                logger.info(f"Запрос на подключение от {first_name} к каналу {channel_id} успешно принят")
             except Exception as e:
                 logger.error(f"Error approving join request or adding user to the database: {str(e)}")
         else:
-            bot.send_message(chat_id, "Предоставлена недействительная ссылка.")
+            bot.send_message(chat_id, "Invalid link provided.")
     else:
         bot.send_message(chat_id, "Hello Telegram! Use the provided link to subscribe to specific channels.")
 
@@ -76,35 +83,9 @@ def handle_join_request(request):
 
     try:
         keyboard = types.InlineKeyboardMarkup()
-        callback_data = f"confirm_channel_{channel_id}"
-        callback_button = types.InlineKeyboardButton(text="Подтвердить", callback_data=callback_data)
+        callback_button = types.InlineKeyboardButton(text="Подтвердить", url=f"https://t.me/ppushpush_bot?start=channel_{channel_id}")
         keyboard.add(callback_button)
 
         bot.send_message(chat_id, f"Привет {first_name}, я антиспам бот!\nПодтвердите, что вы человек, чтобы получить доступ к контенту:", reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Error sending message to user: {str(e)}")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_channel_"))
-def handle_confirmation(call):
-    chat_id = call.message.chat.id
-    first_name = call.from_user.first_name
-    channel_id = call.data.split("_")[2]
-
-    channel, created = Channel.objects.get_or_create(channel_id=channel_id, defaults={'name': f'Channel {channel_id}'})
-
-    try:
-        user, created = User.objects.update_or_create(user_id=chat_id, defaults={'username': first_name})
-        user.channels.add(channel)
-
-        bot.send_message(chat_id, f"Спасибо, ваш запрос принят!")
-
-        message = Message.objects.first()
-        if message:
-            bot.send_message(chat_id, message.text)
-
-        bot.approve_chat_join_request(channel_id, call.from_user.id)
-        logger.info(f"Запит на приєднання від {first_name} до каналу {channel_id} успішно прийнятий")
-    except Exception as e:
-        logger.error(f"Error approving join request or adding user to the database: {str(e)}")
-
-    bot.answer_callback_query(call.id)
